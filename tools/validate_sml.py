@@ -199,7 +199,9 @@ for uq, (o, p) in objs['model'].items():
 for uq, (o, p) in objs['composite_model'].items():
     referenced |= {m['unique_name'] for m in o.get('metrics', [])}
 for nm in (set(objs['metric']) | set(objs['metric_calc'])) - referenced:
-    errors.append(f"metric/calc not referenced by any model: {nm}")
+    # warning, not error: shared packages legitimately ship metrics that a
+    # given consuming repo's models do not reference
+    warns.append(f"metric/calc not referenced by any model: {nm}")
 
 print(f"objects: " + ", ".join(f"{k}={len(v)}" for k, v in objs.items()))
 print(f"errors: {len(errors)}  warnings: {len(warns)}")
