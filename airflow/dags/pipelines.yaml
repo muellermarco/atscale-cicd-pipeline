@@ -45,5 +45,6 @@ pipelines:
     repo: muellermarco/sml-salesinsights-gbq
     dev_catalog_prefix: SalesInsights-GBQ
 
-  # sml-salesinsights-common is a shared PACKAGE repo (no catalog.yml) —
-  # validate-only via its stub workflow, no deploy DAGs, no entry needed.
+  # sml-salesinsights-common is a shared PACKAGE repo (no catalog, per-warehouse
+  # branches) — NOT on this pipeline: no registry entry, no stub workflows.
+  # It is validated indirectly through every consuming repo's validate run.
