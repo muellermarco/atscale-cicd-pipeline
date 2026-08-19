@@ -93,6 +93,10 @@ def deploy_pod(cfg: dict, task_id: str, env: str, git_ref: str,
     """
     host = f"https://{ATSCALE_SUBDOMAINS[env]}.{domain_tmpl(cfg)}"
     sml_cli = cfg["sml_cli"]
+    # private repos: clone with the github-token secret (PAT with repo read)
+    private = cfg.get("private", False)
+    clone_url = (f"https://x-access-token:${{GITHUB_TOKEN}}@github.com/{cfg['repo']}.git"
+                 if private else f"https://github.com/{cfg['repo']}.git")
     flags = ""
     if catalog_name:
         flags += f' --catalog-name="{catalog_name}"'
@@ -110,7 +114,7 @@ export ATSCALE_API_TOKEN=$(curl -sk -X POST -H "Authorization: Bearer $OT" \
   "$HOST/api/auth/token/public" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
 test -n "$ATSCALE_API_TOKEN" || {{ echo "failed to mint public token"; exit 1; }}
 export ATSCALE_API_URL="$HOST/api"
-git clone "https://github.com/{cfg['repo']}.git" /work && cd /work
+git clone "{clone_url}" /work && cd /work
 git checkout {git_ref}
 npx -y {sml_cli} install .
 npx -y {sml_cli} validate . | tee /tmp/validate.log
@@ -126,7 +130,7 @@ npx -y {sml_cli} atscale-deploy .{flags}
         cmds=["bash", "-c"],
         arguments=[script],
         env_vars={"NODE_TLS_REJECT_UNAUTHORIZED": "0"},  # self-signed certs
-        secrets=oauth_secrets(env),
+        secrets=oauth_secrets(env) + ([github_token_secret] if private else []),
         get_logs=True,
         is_delete_operator_pod=True,
         startup_timeout_seconds=300,

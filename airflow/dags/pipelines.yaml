@@ -30,14 +30,20 @@ pipelines:
     nightly:
       catalog: TPCDS-MM-Snowflake        # parity check qa vs live on this catalog
 
-  # --- Sales Insights (registered on the instances; pipelines disabled until
-  #     their catalogs/creds are demo-ready — private repos need git creds) ---
+  # --- Sales Insights ---
   - slug: salesinsights-snowflake
-    enabled: false
+    enabled: true
     repo: muellermarco/sml-salesinsights-snowflake
+    private: true                        # deploy pods clone with the github-token secret
+    dev_catalog_prefix: SalesInsights-SF
   - slug: salesinsights-databricks
-    enabled: false
+    enabled: true
     repo: muellermarco/sml-salesinsights-databricks
+    dev_catalog_prefix: SalesInsights-DBX
   - slug: salesinsights-gbq
-    enabled: false
+    enabled: true
     repo: muellermarco/sml-salesinsights-gbq
+    dev_catalog_prefix: SalesInsights-GBQ
+
+  # sml-salesinsights-common is a shared PACKAGE repo (no catalog.yml) —
+  # validate-only via its stub workflow, no deploy DAGs, no entry needed.
