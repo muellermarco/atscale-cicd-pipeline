@@ -20,16 +20,6 @@ defaults:
   node_image: node:20-bookworm
 
 pipelines:
-  - slug: cicd-demo
-    enabled: true
-    repo: muellermarco/sml-cicd-demo
-    default_branch: main
-    dev_catalog_prefix: TPCDS            # dev deploys land as <prefix>-<branch>
-    baseline_upstream: muellermarco/sml-tpcds-snowflake
-    usage_trace: true
-    nightly:
-      catalog: TPCDS-MM-Snowflake        # parity check qa vs live on this catalog
-
   # --- Sales Insights ---
   - slug: salesinsights-snowflake
     enabled: true
