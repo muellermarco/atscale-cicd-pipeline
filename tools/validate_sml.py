@@ -7,7 +7,8 @@ REPO = sys.argv[1] if len(sys.argv) > 1 else "."
 errors, warns = [], []
 
 objs = {'dataset': {}, 'dimension': {}, 'metric': {}, 'metric_calc': {}, 'model': {},
-        'composite_model': {}, 'connection': {}, 'catalog': {}}
+        'composite_model': {}, 'connection': {}, 'catalog': {},
+        'row_security': {}, 'model_settings': {}}
 for path in glob.glob(os.path.join(REPO, '**', '*.yml'), recursive=True):
     try:
         with open(path) as f:
@@ -83,6 +84,12 @@ for uq, (o, p) in objs['dimension'].items():
             for jc in r['from'].get('join_columns', []):
                 if jc not in ds_cols[fd]:
                     errors.append(f"dim {uq} rel {r.get('unique_name')}: join col {jc} not in {fd}")
+        rs = r.get('to', {}).get('row_security')
+        if rs is not None:
+            # security relationship: target must be a row_security object
+            if rs not in objs['row_security']:
+                errors.append(f"dim {uq} rel {r.get('unique_name')}: unknown row_security {rs}")
+            continue
         td = r.get('to', {}).get('dimension')
         tl = r.get('to', {}).get('level')
         # td may be absent for intra-dimension snowflake joins (to.level only)
@@ -93,6 +100,8 @@ for uq, (o, p) in objs['dimension'].items():
 # second pass for embedded rel levels
 for uq, (o, p) in objs['dimension'].items():
     for r in o.get('relationships', []):
+        if r.get('to', {}).get('row_security') is not None:
+            continue  # security relationship, checked in the first pass
         td = r.get('to', {}).get('dimension')
         tl = r.get('to', {}).get('level')
         if td is None:
@@ -133,6 +142,11 @@ for uq, (o, p) in objs['model'].items():
             for jc in r['from'].get('join_columns', []):
                 if jc not in ds_cols[fd]:
                     errors.append(f"model rel {r['unique_name']}: join col {jc} not in {fd}")
+        rs = r['to'].get('row_security')
+        if rs is not None:
+            if rs not in objs['row_security']:
+                errors.append(f"model rel {r['unique_name']}: unknown row_security {rs}")
+            continue
         td, tl = r['to'].get('dimension'), r['to'].get('level')
         if td not in dim_levels:
             errors.append(f"model rel {r['unique_name']}: unknown dimension {td}")
