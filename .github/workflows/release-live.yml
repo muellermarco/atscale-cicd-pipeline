@@ -1,0 +1,27 @@
+# Reusable release gate: a vX.Y tag push triggers release_live__<slug>.
+name: release-live-reusable
+
+on:
+  workflow_call:
+    inputs:
+      slug:
+        required: true
+        type: string
+
+jobs:
+  trigger-airflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger release_live__${{ inputs.slug }}
+        env:
+          AIRFLOW_URL: ${{ vars.AIRFLOW_URL }}
+          AIRFLOW_USER: ${{ secrets.AIRFLOW_USER }}
+          AIRFLOW_PASSWORD: ${{ secrets.AIRFLOW_PASSWORD }}
+        run: |
+          TOKEN=$(curl -sf -X POST "$AIRFLOW_URL/auth/token" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$AIRFLOW_USER\",\"password\":\"$AIRFLOW_PASSWORD\"}" | jq -r .access_token)
+          curl -sf -X POST "$AIRFLOW_URL/api/v2/dags/release_live__${{ inputs.slug }}/dagRuns" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"logical_date\": null, \"conf\": {\"tag\": \"$GITHUB_REF_NAME\"}}"

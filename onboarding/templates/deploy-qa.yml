@@ -1,0 +1,10 @@
+name: deploy-qa
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy-qa:
+    uses: muellermarco/sml-cicd-pipeline/.github/workflows/deploy-qa.yml@main
+    with:
+      slug: __SLUG__
+    secrets: inherit

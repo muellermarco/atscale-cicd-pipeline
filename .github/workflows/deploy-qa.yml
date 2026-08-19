@@ -1,0 +1,29 @@
+# Reusable service-hook: trigger the calling repo's deploy_qa__<slug> DAG.
+# Caller must define: var AIRFLOW_URL, secrets AIRFLOW_USER/AIRFLOW_PASSWORD
+# (secrets: inherit in the stub), and pass its pipeline slug.
+name: deploy-qa-reusable
+
+on:
+  workflow_call:
+    inputs:
+      slug:
+        required: true
+        type: string
+
+jobs:
+  trigger-airflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy_qa__${{ inputs.slug }}
+        env:
+          AIRFLOW_URL: ${{ vars.AIRFLOW_URL }}
+          AIRFLOW_USER: ${{ secrets.AIRFLOW_USER }}
+          AIRFLOW_PASSWORD: ${{ secrets.AIRFLOW_PASSWORD }}
+        run: |
+          TOKEN=$(curl -sf -X POST "$AIRFLOW_URL/auth/token" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$AIRFLOW_USER\",\"password\":\"$AIRFLOW_PASSWORD\"}" | jq -r .access_token)
+          curl -sf -X POST "$AIRFLOW_URL/api/v2/dags/deploy_qa__${{ inputs.slug }}/dagRuns" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"logical_date\": null, \"conf\": {\"sha\": \"$GITHUB_SHA\"}}"

@@ -1,0 +1,8 @@
+name: validate
+on:
+  pull_request:
+  push:
+    branches: [main, baseline]
+jobs:
+  validate:
+    uses: muellermarco/sml-cicd-pipeline/.github/workflows/validate.yml@main

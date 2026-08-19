@@ -1,0 +1,28 @@
+# Reusable PR gate: repo-only SML validation of the CALLING repo.
+# Model repos call this via a 3-line stub — see onboarding/templates/.
+name: validate-reusable
+
+on:
+  workflow_call: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4                # the calling model repo
+      - uses: actions/checkout@v4
+        with:
+          repository: muellermarco/sml-cicd-pipeline
+          path: _pipeline
+      - uses: actions/setup-node@v4
+        with: {node-version: 20}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install Python deps
+        run: pip install pyyaml
+      - name: Install SML packages
+        run: npx -y sml-cli install .
+      - name: Official SML validation
+        run: npx -y sml-cli validate . | tee sml-cli.log && grep -q "Validation SUCCESSFUL" sml-cli.log
+      - name: Cross-reference integrity
+        run: python _pipeline/tools/validate_sml.py .

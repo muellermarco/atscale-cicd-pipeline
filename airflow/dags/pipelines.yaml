@@ -1,0 +1,43 @@
+# ============================================================================
+# Pipeline registry — THE single source of truth for onboarded model repos.
+# One entry per repo; generate_dags.py turns each into its own set of DAGs:
+#
+#   deploy_dev__<slug>        manual, param branch  → dev instance
+#   deploy_qa__<slug>         GitHub Action on merge to main → qa instance
+#   release_live__<slug>      GitHub Action on tag vX.Y → live instance
+#   baseline_refresh__<slug>  weekly machine PR   (only if baseline_upstream)
+#   usage_trace__<slug>       weekly machine PR   (only if usage_trace: true)
+#   nightly__<slug>           parity check qa/live (only if nightly.catalog)
+#
+# Onboard a repo = add an entry here (PR) + drop the 3 stub workflows into the
+# model repo (onboarding/onboard.py does the rest). Deploy DAGs start
+# UNPAUSED; machine DAGs start paused (they need the github-token secret).
+# ============================================================================
+
+defaults:
+  atscale_domain: atscale-se-demo.com     # dev/qa/prod.<domain>; Airflow Variable atscale_domain overrides
+  sml_cli: sml-cli@2025.12.0
+  node_image: node:20-bookworm
+
+pipelines:
+  - slug: cicd-demo
+    enabled: true
+    repo: muellermarco/sml-cicd-demo
+    default_branch: main
+    dev_catalog_prefix: TPCDS            # dev deploys land as <prefix>-<branch>
+    baseline_upstream: muellermarco/sml-tpcds-snowflake
+    usage_trace: true
+    nightly:
+      catalog: TPCDS-MM-Snowflake        # parity check qa vs live on this catalog
+
+  # --- Sales Insights (registered on the instances; pipelines disabled until
+  #     their catalogs/creds are demo-ready — private repos need git creds) ---
+  - slug: salesinsights-snowflake
+    enabled: false
+    repo: muellermarco/sml-salesinsights-snowflake
+  - slug: salesinsights-databricks
+    enabled: false
+    repo: muellermarco/sml-salesinsights-databricks
+  - slug: salesinsights-gbq
+    enabled: false
+    repo: muellermarco/sml-salesinsights-gbq

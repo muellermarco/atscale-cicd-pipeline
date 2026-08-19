@@ -1,0 +1,10 @@
+name: release-live
+on:
+  push:
+    tags: ['v*']
+jobs:
+  release-live:
+    uses: muellermarco/sml-cicd-pipeline/.github/workflows/release-live.yml@main
+    with:
+      slug: __SLUG__
+    secrets: inherit
