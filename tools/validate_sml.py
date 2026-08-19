@@ -117,21 +117,56 @@ for uq, (o, p) in objs['metric'].items():
         errors.append(f"metric {uq}: column {o.get('column')} not in {d}")
 
 measure_names = set(objs['metric']) | set(objs['metric_calc'])
+all_hier_names = set().union(*dim_hiers.values()) if dim_hiers else set()
+all_attr_names = (set().union(*dim_levels.values()) if dim_levels else set()) | \
+                 (set().union(*dim_secondary.values()) if dim_secondary else set())
+
+
+def check_calc_expression(uq, expr, sink):
+    """Validate MDX references. Members may be hierarchy-qualified:
+    [Dim].[Hier].[Level].&[key]  or  [Dim].[Attr].&[key]  or  [Hier].[Level].&"""
+    for m in re.finditer(r'\[Measures\]\.\[([^\]]+)\]', expr):
+        if m.group(1) not in measure_names:
+            sink.append(f"calc {uq}: references unknown measure {m.group(1)}")
+    for m in re.finditer(r'((?:\[[^\]]+\]\.)+)&', expr):
+        parts = re.findall(r'\[([^\]]+)\]', m.group(1))
+        if not parts or parts[0] == 'Measures':
+            continue
+        head = parts[0]
+        if head not in objs['dimension'] and head not in all_hier_names:
+            sink.append(f"calc {uq}: unknown dimension/hierarchy {head}")
+            continue
+        # middle/leaf segments: hierarchy or attribute names (loose check —
+        # AtScale MDX allows several qualification styles)
+        for seg in parts[1:]:
+            if seg not in all_hier_names and seg not in all_attr_names:
+                sink.append(f"calc {uq}: unknown hierarchy/attribute {seg}")
+
+
+# calcs referenced (transitively) by a model/composite get ERRORS on dangling
+# references; dead calcs only warn (sml-cli tolerates them, nothing consumes them)
+model_referenced = set()
+for uq, (o, p) in objs['model'].items():
+    model_referenced |= {m['unique_name'] for m in o.get('metrics', [])}
+for uq, (o, p) in objs['composite_model'].items():
+    model_referenced |= {m['unique_name'] for m in o.get('metrics', [])}
+frontier = set(model_referenced)
+while frontier:
+    nxt = set()
+    for nm in frontier & set(objs['metric_calc']):
+        for m in re.finditer(r'\[Measures\]\.\[([^\]]+)\]',
+                             objs['metric_calc'][nm][0].get('expression', '')):
+            if m.group(1) not in model_referenced:
+                nxt.add(m.group(1))
+    model_referenced |= nxt
+    frontier = nxt
+
 for uq, (o, p) in objs['metric_calc'].items():
     expr = o.get('expression', '')
     if expr.startswith('/* TODO'):
         continue
-    for m in re.finditer(r'\[Measures\]\.\[([^\]]+)\]', expr):
-        if m.group(1) not in measure_names:
-            errors.append(f"calc {uq}: references unknown measure {m.group(1)}")
-    for m in re.finditer(r'\[([^\]]+)\]\.\[([^\]]+)\]\.&', expr):
-        duq, attr = m.group(1), m.group(2)
-        if duq == 'Measures':
-            continue
-        if duq not in objs['dimension']:
-            errors.append(f"calc {uq}: unknown dimension {duq}")
-        elif attr not in dim_levels.get(duq, set()) | dim_secondary.get(duq, set()):
-            errors.append(f"calc {uq}: unknown attribute {attr} in {duq}")
+    check_calc_expression(uq, expr,
+                          errors if uq in model_referenced else warns)
 
 for uq, (o, p) in objs['model'].items():
     for r in o.get('relationships', []):
