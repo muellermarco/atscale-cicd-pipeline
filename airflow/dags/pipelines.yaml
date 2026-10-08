@@ -24,7 +24,6 @@ pipelines:
   - slug: salesinsights-snowflake
     enabled: true
     repo: muellermarco/sml-salesinsights-snowflake
-    private: true                        # deploy pods clone with the github-token secret
     dev_catalog_prefix: SalesInsights-SF
   - slug: salesinsights-databricks
     enabled: true
