@@ -10,6 +10,8 @@ single-active per user). Kubernetes secrets (namespace `airflow`):
       keys: clientSecret, adminUser, adminPassword
   github-token                                          key: token
 
+Airflow Pools (1 slot each) must exist: atscale-dev, atscale-qa, atscale-live
+  (airflow pools set atscale-qa 1 "serialise AtScale token minting")
 Per-repo configuration lives in pipelines.yaml (same folder) — see
 generate_dags.py. Instance-level overrides via Airflow Variables:
   atscale_domain   target AtScale trio (default from pipelines.yaml defaults)
@@ -143,6 +145,9 @@ npx -y {sml_cli} atscale-deploy .{flags}
     return KubernetesPodOperator(
         task_id=task_id,
         name=f"{task_id.replace('_', '-')}-{cfg['slug']}"[:63],
+        # one deploy at a time per AtScale instance: public-API tokens are
+        # single-active per user, so concurrent pods invalidate each other
+        pool=f"atscale-{env}",
         namespace="airflow",
         in_cluster=True,
         image=cfg["node_image"],
