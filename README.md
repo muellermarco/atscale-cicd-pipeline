@@ -1,4 +1,4 @@
-# sml-cicd-pipeline
+# atscale-cicd-pipeline
 
 The **CI/CD framework** for AtScale SML model repositories: one pipeline,
 many models. Model repos stay pure SML plus three 3-line workflow stubs;

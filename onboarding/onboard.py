@@ -89,7 +89,7 @@ def main():
     for sub, ns in SUBDOMAINS.items():
         register(f"https://{sub}.{args.domain}", ns, args.name or args.slug, url)
 
-    print(f"\n== 2. Add to airflow/dags/pipelines.yaml (PR to sml-cicd-pipeline):")
+    print(f"\n== 2. Add to airflow/dags/pipelines.yaml (PR to atscale-cicd-pipeline):")
     print(f"""  - slug: {args.slug}
     enabled: true
     repo: {args.repo}

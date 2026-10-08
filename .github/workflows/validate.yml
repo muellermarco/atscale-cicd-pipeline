@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4                # the calling model repo
       - uses: actions/checkout@v4
         with:
-          repository: muellermarco/sml-cicd-pipeline
+          repository: muellermarco/atscale-cicd-pipeline
           path: _pipeline
       - uses: actions/setup-node@v4
         with: {node-version: 20}
