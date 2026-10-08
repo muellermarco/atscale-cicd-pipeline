@@ -21,6 +21,16 @@ registry entry: `deploy_dev__<slug>`, `deploy_qa__<slug>`,
 `usage_trace__<slug>`, `nightly__<slug>` (paused; need the `github-token`
 secret / SQL Variables).
 
+## Catalog naming
+
+QA and live deploy each catalog as `<unique_name>_<branch>` (label likewise),
+e.g. `Sales Insights - Snowflake_main`. Base names are read from the repo's
+catalog file (`catalog.yml` or `atscale.yml`) at deploy time; the branch is the
+registry entry's `default_branch`. Dev keeps `<dev_catalog_prefix>-<branch>`.
+sml-cli has no force-deploy flag — a distinct name is how a name/project-ID
+conflict with an older catalog is avoided. A `nightly.catalog` entry must use
+the suffixed name.
+
 ## Onboarding a new model repo
 
 ```sh

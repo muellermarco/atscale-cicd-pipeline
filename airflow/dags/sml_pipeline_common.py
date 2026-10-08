@@ -85,11 +85,17 @@ github_token_secret = Secret("env", "GITHUB_TOKEN", "github-token", "token")
 
 def deploy_pod(cfg: dict, task_id: str, env: str, git_ref: str,
                catalog_name: str | None = None,
-               catalog_label: str | None = None) -> KubernetesPodOperator:
+               catalog_label: str | None = None,
+               branch_suffix: str | None = None) -> KubernetesPodOperator:
     """Clone cfg['repo'] at git_ref and `sml-cli atscale-deploy` it to env.
 
     Mints a short-lived public-API token in-pod: OAuth password grant ->
     /api/auth/token/public -> ATSCALE_API_TOKEN. No stored deploy token.
+
+    branch_suffix (qa/live): the catalog is deployed as
+    "<unique_name>_<branch>" / "<label>_<branch>", base names read from the
+    repo's catalog file (catalog.yml or atscale.yml). Distinct names per
+    branch avoid project-id conflicts with catalogs published from elsewhere.
     """
     host = f"https://{ATSCALE_SUBDOMAINS[env]}.{domain_tmpl(cfg)}"
     sml_cli = cfg["sml_cli"]
@@ -102,6 +108,19 @@ def deploy_pod(cfg: dict, task_id: str, env: str, git_ref: str,
         flags += f' --catalog-name="{catalog_name}"'
     if catalog_label:
         flags += f' --catalog-label="{catalog_label}"'
+    suffix_block = ""
+    if branch_suffix:
+        suffix_block = f"""
+CATFILE=$(grep -lE '^object_type:[[:space:]]*catalog' ./*.yml | head -1)
+test -n "$CATFILE" || {{ echo "no catalog file (object_type: catalog) found"; exit 1; }}
+BASE_NAME=$(sed -n 's/^unique_name:[[:space:]]*//p' "$CATFILE" | head -1 | sed -E "s/^['\\"]|['\\"]$//g")
+BASE_LABEL=$(sed -n 's/^label:[[:space:]]*//p' "$CATFILE" | head -1 | sed -E "s/^['\\"]|['\\"]$//g")
+test -n "$BASE_NAME" || {{ echo "no unique_name in $CATFILE"; exit 1; }}
+CATALOG_NAME="${{BASE_NAME}}_{branch_suffix}"
+CATALOG_LABEL="${{BASE_LABEL:-$BASE_NAME}}_{branch_suffix}"
+echo "Deploying as catalog: $CATALOG_NAME"
+"""
+        flags += ' --catalog-name="$CATALOG_NAME" --catalog-label="$CATALOG_LABEL"'
     script = f"""set -euo pipefail
 HOST="{host}"
 OT=$(curl -sk -X POST "$HOST/auth/realms/atscale/protocol/openid-connect/token" \
@@ -115,7 +134,7 @@ export ATSCALE_API_TOKEN=$(curl -sk -X POST -H "Authorization: Bearer $OT" \
 test -n "$ATSCALE_API_TOKEN" || {{ echo "failed to mint public token"; exit 1; }}
 export ATSCALE_API_URL="$HOST/api"
 git clone "{clone_url}" /work && cd /work
-git checkout {git_ref}
+git checkout {git_ref}{suffix_block}
 npx -y {sml_cli} install .
 npx -y {sml_cli} validate . | tee /tmp/validate.log
 grep -q "Validation SUCCESSFUL" /tmp/validate.log

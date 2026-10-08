@@ -43,7 +43,8 @@ def build_deploy_qa(cfg):
     def _dag():
         deploy = deploy_pod(cfg, task_id="deploy_main_to_qa", env="qa",
                             git_ref="{{ dag_run.conf.get('sha', '"
-                                    + cfg["default_branch"] + "') }}")
+                                    + cfg["default_branch"] + "') }}",
+                            branch_suffix=cfg["default_branch"])
 
         @task
         def smoke_check():
@@ -82,7 +83,8 @@ def build_release_live(cfg):
          params={"tag": ""})
     def _dag():
         deploy_pod(cfg, task_id="deploy_tag_to_live", env="live",
-                   git_ref="{{ dag_run.conf.get('tag') or params.tag }}")
+                   git_ref="{{ dag_run.conf.get('tag') or params.tag }}",
+                   branch_suffix=cfg["default_branch"])
     return _dag()
 
 
