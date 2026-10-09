@@ -31,10 +31,14 @@ pipelines:
     enabled: true
     repo: muellermarco/sml-salesinsights-databricks
     dev_catalog_prefix: SalesInsights-DBX
+    openmetadata:
+      warehouse_service: databricks          # OM database service (catalog hive_metastore)
   - slug: salesinsights-gbq
     enabled: true
     repo: muellermarco/sml-salesinsights-gbq
     dev_catalog_prefix: SalesInsights-GBQ
+    openmetadata:
+      warehouse_service: gbq                 # OM database service (project atscale-sales-demo)
 
   # sml-salesinsights-common is a shared PACKAGE repo (no catalog, per-warehouse
   # branches) — NOT on this pipeline: no registry entry, no stub workflows.
