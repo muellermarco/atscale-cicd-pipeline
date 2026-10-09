@@ -15,6 +15,7 @@ Databricks, BigQuery); --warehouse-service names that OM database service.
 Env: OM_URL (default in-cluster), OM_TOKEN (bot JWT). Idempotent (PUT upserts).
 """
 import argparse, glob, os, re, sys
+from urllib.parse import quote
 import yaml
 
 DATA_MODEL_TYPE = "SupersetDataModel"   # OM has no generic type; verify against your OM version's dashboardDataModel enum
@@ -34,15 +35,118 @@ def load_sml(repos):
     return objs
 
 
+def metric_obj(objs, name):
+    """A model's metric list mixes plain metrics and MDX calculations (metric_calc)."""
+    return objs.get("metric", {}).get(name) or objs.get("metric_calc", {}).get(name) or {}
+
+
+def datamodel_fqn(svc, name):
+    """OM quotes FQN segments that contain a dot: svc.model."<catalog>.<cube>"."""
+    return f'{svc}.model."{name}"' if "." in name else f"{svc}.model.{name}"
+
+
+def _md_code(expr):
+    return "**MDX**\n```mdx\n" + str(expr).strip() + "\n```"
+
+
+def sml_field_docs(objs):
+    """Column name (as the XMLA connector names it) -> markdown description derived from
+    the SML definition: the object's own description, else a generated one, plus the
+    defining details (source column, format, hierarchy, MDX)."""
+    docs = {}
+    for name, o in objs.get("metric", {}).items():
+        src = f"`{o.get('dataset')}.{o.get('column')}`" if o.get("dataset") else ""
+        text = o.get("description") or f"{(o.get('calculation_method') or 'metric').title()} of {src}".rstrip()
+        details = " · ".join(x for x in (
+            f"{o.get('calculation_method')} of {src}" if src and o.get("description") else "",
+            f"format `{o['format']}`" if o.get("format") else "",
+            f"unrelated dimensions: {o['unrelated_dimensions_handling']}" if o.get("unrelated_dimensions_handling") else "") if x)
+        docs[name] = text + (f"\n\n{details}" if details else "")
+    for name, o in objs.get("metric_calc", {}).items():
+        text = o.get("description") or "MDX calculation"
+        fmt = f"\n\nformat `{o['format']}`" if o.get("format") else ""
+        docs[name] = text + fmt + ("\n\n" + _md_code(o["expression"]) if o.get("expression") else "")
+    for dname, d in objs.get("dimension", {}).items():
+        dlabel = d.get("label", dname)
+        in_hier = {}                                   # level unique_name -> hierarchies containing it
+        for h in d.get("hierarchies", []) or []:
+            hlabel = h.get("label", h.get("unique_name", ""))
+            for lvl in h.get("levels", []) or []:
+                in_hier.setdefault(lvl.get("unique_name"), []).append(hlabel)
+                for sa in lvl.get("secondary_attributes", []) or []:
+                    src = f"`{sa.get('dataset')}.{sa.get('name_column')}`" if sa.get("dataset") else ""
+                    text = sa.get("description") or f"Secondary attribute of level *{lvl.get('unique_name')}* in *{dlabel}*"
+                    details = " · ".join(x for x in (f"hierarchy *{hlabel}*", f"from {src}" if src else "") if x)
+                    docs[f"{dname}.{sa['unique_name']}"] = f"{text}\n\n{details}"
+                for m in lvl.get("metrics", []) or []:            # metrical attributes surface as measures
+                    src = f"`{m.get('dataset')}.{m.get('column')}`" if m.get("dataset") else ""
+                    docs[m["unique_name"]] = (f"{(m.get('calculation_method') or 'metric').title()} of {src} "
+                                              f"(metrical attribute on level *{lvl.get('unique_name')}* of *{dlabel}*)")
+        for la in d.get("level_attributes", []) or []:
+            src = f"`{la.get('dataset')}.{la.get('name_column')}`" if la.get("dataset") else ""
+            hiers = ", ".join(f"*{h}*" for h in in_hier.get(la.get("unique_name"), []))
+            text = la.get("description") or f"Level *{la.get('label', la['unique_name'])}* of dimension *{dlabel}*"
+            details = " · ".join(x for x in (f"hierarchy {hiers}" if hiers else "", f"from {src}" if src else "",
+                                             f"time unit {la['time_unit']}" if la.get("time_unit") else "") if x)
+            docs[f"{dname}.{la['unique_name']}"] = f"{text}\n\n{details}" if details else text
+    # role-played dimensions: a model relationship with role_play "Order {0}" exposes
+    # "Date Dimension.rpt_Year" as "Order Date Dimension.Order rpt_Year"
+    for t in ("model", "composite_model"):
+        for mo in objs.get(t, {}).values():
+            for rel in mo.get("relationships", []) or []:
+                rp, to = rel.get("role_play"), rel.get("to") or {}
+                dim = to.get("dimension") if isinstance(to, dict) else None
+                if not rp or not dim or "{0}" not in rp:
+                    continue
+                role = rp.replace(" {0}", "").replace("{0}", "").strip()
+                for key, text in list(docs.items()):
+                    if key.startswith(dim + "."):
+                        attr = key[len(dim) + 1:]
+                        docs.setdefault(f"{rp.format(dim)}.{rp.format(attr)}",
+                                        f"{text}\n\nrole-played as *{role}* ({rp.format(dim)})")
+    return docs
+
+
+def enrich_catalog(s, svc, catalog, objs):
+    """Describe every data model of the catalog (incl. composite models) and every column
+    from the SML definitions. Idempotent: only differing descriptions are patched."""
+    docs = sml_field_docs(objs)
+    model_docs = {n: o.get("description") for t in ("model", "composite_model")
+                  for n, o in objs.get(t, {}).items() if o.get("description")}
+    r = s.get(f"{OM_URL}/v1/dashboard/datamodels", params={"service": svc, "limit": 100, "fields": "columns"},
+              timeout=60); r.raise_for_status()
+    for dm in r.json().get("data", []):
+        if dm.get("project") != catalog:
+            continue
+        cube = dm["name"].split(".", 1)[1] if dm["name"].startswith(f"{catalog}.") else dm["name"]
+        ops, missing = [], 0
+        if model_docs.get(cube) and (dm.get("description") or "") != model_docs[cube]:
+            ops.append({"op": "add" if dm.get("description") is None else "replace",
+                        "path": "/description", "value": model_docs[cube]})
+        for i, c in enumerate(dm.get("columns", [])):
+            want = docs.get(c["name"])
+            if not want:
+                missing += 1; continue
+            if (c.get("description") or "").strip() != want.strip():
+                ops.append({"op": "add" if c.get("description") is None else "replace",
+                            "path": f"/columns/{i}/description", "value": want})
+        if ops:
+            pr = s.patch(f"{OM_URL}/v1/dashboard/datamodels/{dm['id']}", json=ops, timeout=120,
+                         headers={"Content-Type": "application/json-patch+json"})
+            print(f"  described {dm['name']!r}: {len(ops)} change(s) -> {pr.status_code}"
+                  + (f" ({missing} column(s) not in SML)" if missing else "")); pr.raise_for_status()
+        else:
+            print(f"  described {dm['name']!r}: up to date" + (f" ({missing} column(s) not in SML)" if missing else ""))
+
+
 def model_columns(model, objs):
     """Columns = model metrics (+ referenced dimension attributes)."""
     cols = []
     for m in model.get("metrics", []):
-        o = objs.get("metric", {}).get(m["unique_name"], {})
+        o = metric_obj(objs, m["unique_name"])
         cols.append({"name": m["unique_name"], "displayName": o.get("label", m["unique_name"]),
-                     "description": o.get("description", f"Metric ({o.get('calculation_method', 'calculated')})"),
-                     "dataType": "DOUBLE", "dataTypeDisplay": "metric",
-                     "tags": [], "children": []})
+                     "description": sml_field_docs(objs).get(m["unique_name"], "Metric"),
+                     "dataType": "DOUBLE", "dataTypeDisplay": "metric", "tags": [], "children": []})
     for d in model.get("dimensions", []):
         name = d if isinstance(d, str) else d.get("unique_name")
         dim = objs.get("dimension", {}).get(name, {})
@@ -109,17 +213,21 @@ def main():
         if r.status_code >= 300:
             print(f"{method} {path} -> {r.status_code} {r.text[:300]}"); r.raise_for_status()
         return r.json() if r.text.strip() else {}      # lineage PUT answers with an empty body
-    call("PUT", "/v1/services/dashboardServices", json={
-        "name": svc, "serviceType": "CustomDashboard",
-        "description": f"AtScale semantic layer ({a.env})",
-        "connection": {"config": {"type": "CustomDashboard", "sourcePythonClass": "atscale.none"}}})
+    # the service is normally owned by the XMLA connector (om_connectors.atscale_xmla) —
+    # never overwrite its connection; only create a placeholder when it does not exist
+    if s.get(f"{OM_URL}/v1/services/dashboardServices/name/{svc}", timeout=60).status_code == 404:
+        call("PUT", "/v1/services/dashboardServices", json={
+            "name": svc, "serviceType": "CustomDashboard",
+            "description": f"AtScale semantic layer ({a.env})",
+            "connection": {"config": {"type": "CustomDashboard", "sourcePythonClass": "atscale.none"}}})
+        print(f"service {svc!r} created (placeholder connection — point it at the XMLA connector)")
     for name, model, cols, tables in plan:
         dm_name = f"{a.catalog}.{name}" if a.catalog else name
         # the XMLA connector (om_connectors.atscale_xmla) owns the data models once it has
         # run; only create one here if it is missing, never overwrite its columns
-        r0 = s.get(f"{OM_URL}/v1/dashboard/datamodels/name/{svc}.model.{dm_name}", timeout=60)
+        r0 = s.get(f"{OM_URL}/v1/dashboard/datamodels/name/{quote(datamodel_fqn(svc, dm_name), safe='')}", timeout=60)
         if r0.status_code == 200:
-            dm = r0.json(); print(f"model {dm_name!r} exists — lineage only")
+            dm = r0.json(); print(f"model {dm_name!r} exists (connector-owned) — lineage only")
         else:
             dm = call("PUT", "/v1/dashboard/datamodels", json={
                 "name": dm_name, "displayName": model.get("label", name), "service": svc,
@@ -137,6 +245,9 @@ def main():
                 "fromEntity": {"id": r.json()["id"], "type": "table"},
                 "toEntity": {"id": dm["id"], "type": "dashboardDataModel"}}})
             print(f"  lineage {fqn} -> {svc}.{dm_name}")
+    if a.catalog:
+        print("describing data models + columns from the SML definitions:")
+        enrich_catalog(s, svc, a.catalog, objs)
     return 0
 
 
