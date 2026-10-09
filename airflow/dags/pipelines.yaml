@@ -27,7 +27,6 @@ pipelines:
     dev_catalog_prefix: SalesInsights-SF
     openmetadata:                      # post-release sync to OpenMetadata (tools/om_sync.py)
       warehouse_service: snowflake_partner   # OM database service name — must match the UI
-      packages: [muellermarco/sml-salesinsights-common]
   - slug: salesinsights-databricks
     enabled: true
     repo: muellermarco/sml-salesinsights-databricks

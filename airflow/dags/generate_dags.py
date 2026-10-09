@@ -87,18 +87,42 @@ def build_release_live(cfg):
                             git_ref="{{ dag_run.conf.get('tag') or params.tag }}",
                             branch_suffix=cfg["default_branch"])
         if cfg.get("openmetadata"):
-            # optional registry block: openmetadata: {warehouse_service: <OM service>, packages: [owner/repo]}
+            # optional registry block: openmetadata: {warehouse_service: <OM service>}
+            # (SML packages are resolved from the repo's package.yml)
             deploy >> build_om_sync(cfg)
     return _dag()
 
 
 OM_SCRIPT = """set -euo pipefail
 pip install -q pyyaml requests
-git clone -q "https://github.com/${GITHUB_REPO}.git" /work/main && git -C /work/main checkout "${GIT_REF}"
-ARGS="--repo /work/main"
-for p in ${PACKAGE_REPOS:-}; do git clone -q "https://github.com/$p.git" "/work/$(basename $p)"; ARGS="$ARGS --repo /work/$(basename $p)"; done
-curl -sf "https://raw.githubusercontent.com/muellermarco/atscale-cicd-pipeline/main/tools/om_sync.py" -o /work/om_sync.py
-python /work/om_sync.py $ARGS --env live --warehouse-service "${WAREHOUSE_SERVICE}"
+python - <<'PY'
+# bootstrap: no git/curl in python:slim -> fetch GitHub tarballs with the stdlib.
+# Packages come from the model repo's package.yml at their pinned commit/branch.
+import io, os, re, shutil, subprocess, sys, tarfile, tempfile, urllib.request, yaml
+def fetch(repo, ref, dest):
+    data = urllib.request.urlopen(f"https://codeload.github.com/{repo}/tar.gz/{ref}", timeout=120).read()
+    tmp = tempfile.mkdtemp()
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as t:
+        t.extractall(tmp, filter="data")
+    shutil.move(os.path.join(tmp, os.listdir(tmp)[0]), dest)
+    print(f"fetched {repo}@{ref} -> {dest}")
+fetch(os.environ["GITHUB_REPO"], os.environ["GIT_REF"], "/work/main")
+repos = ["/work/main"]
+pkg = "/work/main/package.yml"
+if os.path.exists(pkg):
+    for i, p in enumerate(yaml.safe_load(open(pkg)).get("packages") or []):
+        m = re.search(r"github\\.com/([^/]+/[^/.]+)", p.get("url", ""))
+        if not m:
+            continue
+        v = str(p.get("version", ""))
+        ref = v.split("commit:", 1)[1] if v.startswith("commit:") else p.get("branch", "main")
+        fetch(m.group(1), ref, f"/work/pkg{i}"); repos.append(f"/work/pkg{i}")
+urllib.request.urlretrieve(
+    "https://raw.githubusercontent.com/muellermarco/atscale-cicd-pipeline/main/tools/om_sync.py", "/work/om_sync.py")
+args = [a for r in repos for a in ("--repo", r)] + os.environ.get("OM_SYNC_EXTRA", "").split()
+sys.exit(subprocess.call([sys.executable, "/work/om_sync.py", *args, "--env", "live",
+                          "--warehouse-service", os.environ["WAREHOUSE_SERVICE"]]))
+PY
 """
 
 
@@ -111,7 +135,6 @@ def build_om_sync(cfg):
         namespace="airflow", in_cluster=True, image="python:3.12-slim",
         cmds=["bash", "-c"], arguments=[OM_SCRIPT],
         env_vars={"GITHUB_REPO": cfg["repo"], "WAREHOUSE_SERVICE": om["warehouse_service"],
-                  "PACKAGE_REPOS": " ".join(om.get("packages", [])),
                   "GIT_REF": "{{ dag_run.conf.get('tag') or params.tag }}"},
         secrets=[Secret("env", "OM_TOKEN", "openmetadata-bot", "token")],
         get_logs=True, is_delete_operator_pod=True, startup_timeout_seconds=300,
