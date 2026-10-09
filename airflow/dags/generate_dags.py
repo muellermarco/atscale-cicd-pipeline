@@ -8,6 +8,7 @@ from datetime import datetime
 
 from airflow.decorators import dag, task
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from airflow.providers.cncf.kubernetes.secret import Secret
 
 from sml_pipeline_common import (atscale_host, deploy_pod, github_status,
                                  github_token_secret, load_registry)
@@ -82,10 +83,39 @@ def build_release_live(cfg):
                 f"instance. Rollback = re-run with the previous tag.",
          params={"tag": ""})
     def _dag():
-        deploy_pod(cfg, task_id="deploy_tag_to_live", env="live",
-                   git_ref="{{ dag_run.conf.get('tag') or params.tag }}",
-                   branch_suffix=cfg["default_branch"])
+        deploy = deploy_pod(cfg, task_id="deploy_tag_to_live", env="live",
+                            git_ref="{{ dag_run.conf.get('tag') or params.tag }}",
+                            branch_suffix=cfg["default_branch"])
+        if cfg.get("openmetadata"):
+            # optional registry block: openmetadata: {warehouse_service: <OM service>, packages: [owner/repo]}
+            deploy >> build_om_sync(cfg)
     return _dag()
+
+
+OM_SCRIPT = """set -euo pipefail
+pip install -q pyyaml requests
+git clone -q "https://github.com/${GITHUB_REPO}.git" /work/main && git -C /work/main checkout "${GIT_REF}"
+ARGS="--repo /work/main"
+for p in ${PACKAGE_REPOS:-}; do git clone -q "https://github.com/$p.git" "/work/$(basename $p)"; ARGS="$ARGS --repo /work/$(basename $p)"; done
+curl -sf "https://raw.githubusercontent.com/muellermarco/atscale-cicd-pipeline/main/tools/om_sync.py" -o /work/om_sync.py
+python /work/om_sync.py $ARGS --env live --warehouse-service "${WAREHOUSE_SERVICE}"
+"""
+
+
+def build_om_sync(cfg):
+    """After a live release: register the released model + lineage in OpenMetadata.
+    Needs secret openmetadata-bot (key token) in ns airflow."""
+    om = cfg["openmetadata"]
+    return KubernetesPodOperator(
+        task_id="sync_openmetadata", name=f"om-sync-{cfg['slug']}"[:63],
+        namespace="airflow", in_cluster=True, image="python:3.12-slim",
+        cmds=["bash", "-c"], arguments=[OM_SCRIPT],
+        env_vars={"GITHUB_REPO": cfg["repo"], "WAREHOUSE_SERVICE": om["warehouse_service"],
+                  "PACKAGE_REPOS": " ".join(om.get("packages", [])),
+                  "GIT_REF": "{{ dag_run.conf.get('tag') or params.tag }}"},
+        secrets=[Secret("env", "OM_TOKEN", "openmetadata-bot", "token")],
+        get_logs=True, is_delete_operator_pod=True, startup_timeout_seconds=300,
+    )
 
 
 BASELINE_SCRIPT = """set -euo pipefail
