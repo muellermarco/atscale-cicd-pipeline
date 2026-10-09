@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "om-connectors"
+version = "0.1.0"
+description = "OpenMetadata custom connectors for the AtScale CI/CD demo (XMLA / SSAS-compatible)"
+requires-python = ">=3.10"
+# openmetadata-ingestion + requests come from the ingestion runtime image;
+# install with `pip install --no-deps` so this never re-resolves Airflow's deps.
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["om_connectors*"]

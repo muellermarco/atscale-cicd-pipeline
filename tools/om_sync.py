@@ -83,6 +83,9 @@ def main():
     ap.add_argument("--repo", action="append", required=True, help="SML repo dir (repeat for packages, e.g. -common)")
     ap.add_argument("--env", default="live")
     ap.add_argument("--warehouse-service", required=True)
+    ap.add_argument("--catalog", default=None,
+                    help="deployed catalog name; data models are then named '<catalog>.<model>' "
+                         "(matches the atscale_xmla connector, which owns the columns)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     objs = load_sml(a.repo)
@@ -111,10 +114,17 @@ def main():
         "description": f"AtScale semantic layer ({a.env})",
         "connection": {"config": {"type": "CustomDashboard", "sourcePythonClass": "atscale.none"}}})
     for name, model, cols, tables in plan:
-        dm = call("PUT", "/v1/dashboard/datamodels", json={
-            "name": name, "displayName": model.get("label", name), "service": svc,
-            "description": model.get("description", f"AtScale model {name}"),
-            "dataModelType": DATA_MODEL_TYPE, "columns": cols})
+        dm_name = f"{a.catalog}.{name}" if a.catalog else name
+        # the XMLA connector (om_connectors.atscale_xmla) owns the data models once it has
+        # run; only create one here if it is missing, never overwrite its columns
+        r0 = s.get(f"{OM_URL}/v1/dashboard/datamodels/name/{svc}.model.{dm_name}", timeout=60)
+        if r0.status_code == 200:
+            dm = r0.json(); print(f"model {dm_name!r} exists — lineage only")
+        else:
+            dm = call("PUT", "/v1/dashboard/datamodels", json={
+                "name": dm_name, "displayName": model.get("label", name), "service": svc,
+                "project": a.catalog, "description": model.get("description", f"AtScale model {name}"),
+                "dataModelType": DATA_MODEL_TYPE, "columns": cols})
         for fqn in tables:
             svc_name, rest = fqn.split(".", 1)           # OM keeps the warehouse's own casing;
             for cand in (fqn, f"{svc_name}.{rest.upper()}", f"{svc_name}.{rest.lower()}"):  # never re-case the service
@@ -126,7 +136,7 @@ def main():
             call("PUT", "/v1/lineage", json={"edge": {
                 "fromEntity": {"id": r.json()["id"], "type": "table"},
                 "toEntity": {"id": dm["id"], "type": "dashboardDataModel"}}})
-            print(f"  lineage {fqn} -> {svc}.{name}")
+            print(f"  lineage {fqn} -> {svc}.{dm_name}")
     return 0
 
 
