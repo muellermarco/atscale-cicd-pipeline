@@ -120,6 +120,11 @@ if os.path.exists(pkg):
 urllib.request.urlretrieve(
     "https://raw.githubusercontent.com/muellermarco/atscale-cicd-pipeline/main/tools/om_sync.py", "/work/om_sync.py")
 args = [a for r in repos for a in ("--repo", r)] + os.environ.get("OM_SYNC_EXTRA", "").split()
+for cat in ("/work/main/catalog.yml", "/work/main/atscale.yml"):          # deployed as <unique_name>_<branch>
+    if os.path.exists(cat):
+        d = yaml.safe_load(open(cat)) or {}
+        if d.get("object_type") == "catalog" and d.get("unique_name"):
+            args += ["--catalog", f"{d['unique_name']}_{os.environ['CATALOG_SUFFIX']}"]; break
 sys.exit(subprocess.call([sys.executable, "/work/om_sync.py", *args, "--env", "live",
                           "--warehouse-service", os.environ["WAREHOUSE_SERVICE"]]))
 PY
@@ -135,6 +140,7 @@ def build_om_sync(cfg):
         namespace="airflow", in_cluster=True, image="python:3.12-slim",
         cmds=["bash", "-c"], arguments=[OM_SCRIPT],
         env_vars={"GITHUB_REPO": cfg["repo"], "WAREHOUSE_SERVICE": om["warehouse_service"],
+                  "CATALOG_SUFFIX": cfg["default_branch"],
                   "GIT_REF": "{{ dag_run.conf.get('tag') or params.tag }}"},
         secrets=[Secret("env", "OM_TOKEN", "openmetadata-bot", "token")],
         get_logs=True, is_delete_operator_pod=True, startup_timeout_seconds=300,
