@@ -40,6 +40,72 @@ def metric_obj(objs, name):
     return objs.get("metric", {}).get(name) or objs.get("metric_calc", {}).get(name) or {}
 
 
+def measure_refs(calc):
+    """unique_names of the measures an MDX expression references ([Measures].[x])."""
+    return list(dict.fromkeys(re.findall(r"\[Measures\]\.\[([^\]]+)\]", str(calc.get("expression", "")), re.I)))
+
+
+def field_sources(objs):
+    """Column name (as the XMLA connector names it) -> {(dataset, column)} physical origins.
+    Calculations resolve transitively through the measures their MDX references."""
+    src = {}
+    def add(name, ds, col):
+        if ds and col:
+            src.setdefault(name, set()).add((ds, col))
+    for name, o in objs.get("metric", {}).items():
+        add(name, o.get("dataset"), o.get("column"))
+    for dname, d in objs.get("dimension", {}).items():
+        for la in d.get("level_attributes", []) or []:
+            for c in [la.get("name_column")] + list(la.get("key_columns") or []):
+                add(f"{dname}.{la['unique_name']}", la.get("dataset"), c)
+        for h in d.get("hierarchies", []) or []:
+            for lvl in h.get("levels", []) or []:
+                for sa in lvl.get("secondary_attributes", []) or []:
+                    for c in [sa.get("name_column")] + list(sa.get("key_columns") or []):
+                        add(f"{dname}.{sa['unique_name']}", sa.get("dataset"), c)
+                for m in lvl.get("metrics", []) or []:
+                    add(m["unique_name"], m.get("dataset"), m.get("column"))
+    calcs = objs.get("metric_calc", {})
+    def resolve(name, seen):
+        if name in src or name in seen:
+            return src.get(name, set())
+        seen.add(name)
+        out = set()
+        for r in measure_refs(calcs.get(name, {})):
+            out |= resolve(r, seen)
+        if out:
+            src[name] = out
+        return out
+    for name in calcs:
+        resolve(name, set())
+    for t in ("model", "composite_model"):                   # role-played dimensions
+        for mo in objs.get(t, {}).values():
+            for rel in mo.get("relationships", []) or []:
+                rp, to = rel.get("role_play"), rel.get("to") or {}
+                dim = to.get("dimension") if isinstance(to, dict) else None
+                if rp and dim and "{0}" in rp:
+                    for key in [k for k in src if k.startswith(dim + ".")]:
+                        src.setdefault(f"{rp.format(dim)}.{rp.format(key[len(dim) + 1:])}", src[key])
+    return src
+
+
+def column_lineage(s, svc, dm_fqn, table_fqn, table_id, dataset_names, objs, sources):
+    """columnsLineage for one table->data model edge: every data model column whose physical
+    origin is a column of this table (through one of the datasets reading it)."""
+    dm = s.get(f"{OM_URL}/v1/dashboard/datamodels/name/{quote(dm_fqn, safe='')}", params={"fields": "columns"}, timeout=60)
+    tb = s.get(f"{OM_URL}/v1/tables/{table_id}", params={"fields": "columns"}, timeout=60)
+    if dm.status_code != 200 or tb.status_code != 200:
+        return []
+    tcols = {c["name"].lower(): c["fullyQualifiedName"] for c in tb.json().get("columns", [])}
+    out = []
+    for c in dm.json().get("columns", []):
+        froms = sorted({tcols[col.lower()] for ds, col in sources.get(c["name"], ())
+                        if ds in dataset_names and col.lower() in tcols})
+        if froms:
+            out.append({"fromColumns": froms, "toColumn": c["fullyQualifiedName"]})
+    return out
+
+
 def datamodel_fqn(svc, name):
     """OM quotes FQN segments that contain a dot: svc.model."<catalog>.<cube>"."""
     return f'{svc}.model."{name}"' if "." in name else f"{svc}.model.{name}"
@@ -65,7 +131,9 @@ def sml_field_docs(objs):
     for name, o in objs.get("metric_calc", {}).items():
         text = o.get("description") or "MDX calculation"
         fmt = f"\n\nformat `{o['format']}`" if o.get("format") else ""
-        docs[name] = text + fmt + ("\n\n" + _md_code(o["expression"]) if o.get("expression") else "")
+        refs = [metric_obj(objs, r).get("label", r) for r in measure_refs(o) if r != name]
+        dep = ("\n\n**Depends on** " + ", ".join(f"`{r}`" for r in dict.fromkeys(refs))) if refs else ""
+        docs[name] = text + fmt + dep + ("\n\n" + _md_code(o["expression"]) if o.get("expression") else "")
     for dname, d in objs.get("dimension", {}).items():
         dlabel = d.get("label", dname)
         in_hier = {}                                   # level unique_name -> hierarchies containing it
@@ -163,11 +231,21 @@ def model_datasets(model, objs):
     for m in model.get("metrics", []):
         ds = objs.get("metric", {}).get(m["unique_name"], {}).get("dataset")
         if ds: names.add(ds)
-    for d in model.get("dimensions", []):
-        dim = objs.get("dimension", {}).get(d if isinstance(d, str) else d.get("unique_name"), {})
-        for lvl in dim.get("level_attributes", []):
-            for a in [lvl] + lvl.get("secondary_attributes", []):
-                if a.get("dataset"): names.add(a["dataset"])
+    dims = [d if isinstance(d, str) else d.get("unique_name") for d in model.get("dimensions", []) or []]
+    for rel in model.get("relationships", []) or []:            # dimensions joined by the model
+        to = rel.get("to") or {}
+        if isinstance(to, dict) and to.get("dimension"):
+            dims.append(to["dimension"])
+        if isinstance(rel.get("from"), dict) and rel["from"].get("dataset"):
+            names.add(rel["from"]["dataset"])
+    for dname in dict.fromkeys(dims):
+        dim = objs.get("dimension", {}).get(dname, {})
+        for la in dim.get("level_attributes", []) or []:
+            if la.get("dataset"): names.add(la["dataset"])
+        for h in dim.get("hierarchies", []) or []:
+            for lvl in h.get("levels", []) or []:
+                for sa in lvl.get("secondary_attributes", []) or []:
+                    if sa.get("dataset"): names.add(sa["dataset"])
     return names
 
 
@@ -195,12 +273,19 @@ def main():
     objs = load_sml(a.repo)
     svc = f"atscale-{a.env}"
     plan = []
+    members = {}                                          # data model name -> SML models it is made of
     for name, model in objs.get("model", {}).items():
-        tables = [t for d in model_datasets(model, objs) if d in objs.get("dataset", {})
-                  for t in table_fqns(objs["dataset"][d], objs, a.warehouse_service)]
+        members[name] = [model]
+    for name, cm in objs.get("composite_model", {}).items():
+        members[name] = [objs["model"][m] for m in cm.get("models") or [] if m in objs.get("model", {})]
+    for name, mods in members.items():
+        dsets = {d for m in mods for d in model_datasets(m, objs) if d in objs.get("dataset", {})}
+        tables = [t for d in dsets for t in table_fqns(objs["dataset"][d], objs, a.warehouse_service)]
         uniq = {t.lower(): t for t in tables}            # SQL refs differ in case from connection values
-        plan.append((name, model, model_columns(model, objs), sorted(uniq.values())))
-    for name, _, cols, tables in plan:
+        cols = [c for m in mods for c in model_columns(m, objs)]
+        plan.append((name, mods[0] if mods else {}, cols, sorted(uniq.values()), dsets))
+    sources = field_sources(objs)
+    for name, _, cols, tables, _d in plan:
         print(f"model {name!r}: {len(cols)} columns, upstream tables: {tables or 'none resolved'}")
     if a.dry_run:
         return 0
@@ -221,7 +306,7 @@ def main():
             "description": f"AtScale semantic layer ({a.env})",
             "connection": {"config": {"type": "CustomDashboard", "sourcePythonClass": "atscale.none"}}})
         print(f"service {svc!r} created (placeholder connection — point it at the XMLA connector)")
-    for name, model, cols, tables in plan:
+    for name, model, cols, tables, dsets in plan:
         dm_name = f"{a.catalog}.{name}" if a.catalog else name
         # the XMLA connector (om_connectors.atscale_xmla) owns the data models once it has
         # run; only create one here if it is missing, never overwrite its columns
@@ -241,10 +326,17 @@ def main():
                     break
             if r.status_code == 404:
                 print(f"  table {fqn} not in OM yet (ingest the warehouse first) — skipped"); continue
-            call("PUT", "/v1/lineage", json={"edge": {
-                "fromEntity": {"id": r.json()["id"], "type": "table"},
-                "toEntity": {"id": dm["id"], "type": "dashboardDataModel"}}})
-            print(f"  lineage {fqn} -> {svc}.{dm_name}")
+            # datasets that read this table (by table name, case-insensitive)
+            tname = fqn.rsplit(".", 1)[1].lower()
+            ds_here = {d for d in dsets if any(t.rsplit(".", 1)[1].lower() == tname
+                                                 for t in table_fqns(objs["dataset"][d], objs, a.warehouse_service))}
+            cl = column_lineage(s, svc, datamodel_fqn(svc, dm_name), fqn, r.json()["id"], ds_here, objs, sources)
+            edge = {"fromEntity": {"id": r.json()["id"], "type": "table"},
+                    "toEntity": {"id": dm["id"], "type": "dashboardDataModel"}}
+            if cl:
+                edge["lineageDetails"] = {"columnsLineage": cl, "source": "DashboardLineage"}
+            call("PUT", "/v1/lineage", json={"edge": edge})
+            print(f"  lineage {fqn} -> {svc}.{dm_name} ({len(cl)} column mappings)")
     if a.catalog:
         print("describing data models + columns from the SML definitions:")
         enrich_catalog(s, svc, a.catalog, objs)
