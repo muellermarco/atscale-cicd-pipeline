@@ -105,7 +105,7 @@ def main():
         r = s.request(method, f"{OM_URL}{path}", timeout=60, **kw)
         if r.status_code >= 300:
             print(f"{method} {path} -> {r.status_code} {r.text[:300]}"); r.raise_for_status()
-        return r.json()
+        return r.json() if r.text.strip() else {}      # lineage PUT answers with an empty body
     call("PUT", "/v1/services/dashboardServices", json={
         "name": svc, "serviceType": "CustomDashboard",
         "description": f"AtScale semantic layer ({a.env})",
@@ -116,7 +116,8 @@ def main():
             "description": model.get("description", f"AtScale model {name}"),
             "dataModelType": DATA_MODEL_TYPE, "columns": cols})
         for fqn in tables:
-            for cand in (fqn, fqn.lower(), fqn.upper()):  # OM keeps the warehouse's own casing
+            svc_name, rest = fqn.split(".", 1)           # OM keeps the warehouse's own casing;
+            for cand in (fqn, f"{svc_name}.{rest.upper()}", f"{svc_name}.{rest.lower()}"):  # never re-case the service
                 r = s.get(f"{OM_URL}/v1/tables/name/{cand}", timeout=60)
                 if r.status_code != 404:
                     break
