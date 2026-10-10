@@ -17,8 +17,8 @@ lives here, versioned and upgraded in one place.
 
 Airflow **git-syncs `airflow/dags/` from this repo** and generates, per
 registry entry: `deploy_dev__<slug>`, `deploy_qa__<slug>`,
-`release_live__<slug>` (unpaused), plus optional `baseline_refresh__<slug>`,
-`usage_trace__<slug>`, `nightly__<slug>` (paused; need the `github-token`
+`release_live__<slug>` (unpaused), plus optional `usage_trace__<slug>`,
+`nightly__<slug>` (paused; need the `github-token`
 secret / SQL Variables).
 
 ## Catalog naming

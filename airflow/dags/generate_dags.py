@@ -1,7 +1,7 @@
 """DAG factory — one set of pipeline DAGs per entry in pipelines.yaml.
 
 Deploy DAGs (deploy_dev/deploy_qa/release_live) start UNPAUSED; machine DAGs
-(baseline_refresh/usage_trace/nightly) start paused — they need the
+(usage_trace/nightly) start paused — they need the
 `github-token` secret / SQL Variables before their pods can run.
 """
 from datetime import datetime
@@ -147,27 +147,6 @@ def build_om_sync(cfg):
     )
 
 
-BASELINE_SCRIPT = """set -euo pipefail
-git config --global user.name  "baseline-refresh bot"
-git config --global user.email "bot@atscale-se-demo.com"
-git clone https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git /work
-cd /work
-git checkout baseline
-git clone --depth 1 "https://github.com/${UPSTREAM_REPO}.git" /upstream
-for d in calculations connections datasets dimensions metrics models catalog.yml package.yml; do
-  rm -rf "/work/$d"
-  [ -e "/upstream/$d" ] && cp -R "/upstream/$d" "/work/$d" || true
-done
-if git diff --quiet; then echo "No drift — baseline is current."; exit 0; fi
-git add -A
-git commit -m "baseline refresh $(date +%F): sync from upstream model source"
-git push origin baseline
-curl -sf -X POST "https://api.github.com/repos/${GITHUB_REPO}/pulls" \\
-  -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \\
-  -d '{"title":"Drift: baseline refresh","head":"baseline","base":"main","body":"Weekly machine PR — upstream model source changed. Review like any other change."}' \\
-  || echo "PR already open or creation failed — see logs."
-"""
-
 USAGE_SCRIPT = """set -euo pipefail
 git config --global user.name  "usage-trace bot"
 git config --global user.email "bot@atscale-se-demo.com"
@@ -213,19 +192,6 @@ def _machine_pod(cfg, task_id, script, extra_env=None):
         get_logs=True, is_delete_operator_pod=True,
         startup_timeout_seconds=300,
     )
-
-
-def build_baseline_refresh(cfg):
-    @dag(dag_id=f"baseline_refresh__{cfg['slug']}", schedule="0 5 * * 1",
-         start_date=START, catchup=False, is_paused_upon_creation=True,
-         tags=["sml-pipeline", cfg["slug"], "machine"],
-         doc_md=f"Weekly machine PR: re-sync {cfg['repo']}@baseline from "
-                f"{cfg['baseline_upstream']} and open a drift PR. Needs the "
-                f"github-token secret.")
-    def _dag():
-        _machine_pod(cfg, "sync_baseline_and_open_pr", BASELINE_SCRIPT,
-                     {"UPSTREAM_REPO": cfg["baseline_upstream"]})
-    return _dag()
 
 
 def build_usage_trace(cfg):
@@ -286,8 +252,6 @@ for _cfg in load_registry()["pipelines"]:
     globals()[f"dag_deploy_dev_{_slug}"] = build_deploy_dev(_cfg)
     globals()[f"dag_deploy_qa_{_slug}"] = build_deploy_qa(_cfg)
     globals()[f"dag_release_live_{_slug}"] = build_release_live(_cfg)
-    if _cfg.get("baseline_upstream"):
-        globals()[f"dag_baseline_{_slug}"] = build_baseline_refresh(_cfg)
     if _cfg.get("usage_trace"):
         globals()[f"dag_usage_{_slug}"] = build_usage_trace(_cfg)
     if _cfg.get("nightly", {}).get("catalog"):

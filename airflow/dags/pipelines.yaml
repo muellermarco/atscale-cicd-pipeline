@@ -5,7 +5,6 @@
 #   deploy_dev__<slug>        manual, param branch  → dev instance
 #   deploy_qa__<slug>         GitHub Action on merge to main → qa instance
 #   release_live__<slug>      GitHub Action on tag vX.Y → live instance
-#   baseline_refresh__<slug>  weekly machine PR   (only if baseline_upstream)
 #   usage_trace__<slug>       weekly machine PR   (only if usage_trace: true)
 #   nightly__<slug>           parity check qa/live (only if nightly.catalog)
 #

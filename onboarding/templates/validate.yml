@@ -2,7 +2,7 @@ name: validate
 on:
   pull_request:
   push:
-    branches: [main, baseline]
+    branches: [main]
 jobs:
   validate:
     uses: muellermarco/atscale-cicd-pipeline/.github/workflows/validate.yml@main
