@@ -100,7 +100,11 @@ python - <<'PY'
 # Packages come from the model repo's package.yml at their pinned commit/branch.
 import io, os, re, shutil, subprocess, sys, tarfile, tempfile, urllib.request, yaml
 def fetch(repo, ref, dest):
-    data = urllib.request.urlopen(f"https://codeload.github.com/{repo}/tar.gz/{ref}", timeout=120).read()
+    # private repos (registry private: true) need the github-token secret on the tarball request
+    req = urllib.request.Request(f"https://codeload.github.com/{repo}/tar.gz/{ref}")
+    if os.environ.get("GITHUB_TOKEN"):
+        req.add_header("Authorization", f"token {os.environ['GITHUB_TOKEN']}")
+    data = urllib.request.urlopen(req, timeout=120).read()
     tmp = tempfile.mkdtemp()
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as t:
         t.extractall(tmp, filter="data")
@@ -134,7 +138,8 @@ PY
 
 def build_om_sync(cfg):
     """After a live release: register the released model + lineage in OpenMetadata.
-    Needs secret openmetadata-bot (key token) in ns airflow."""
+    Needs secret openmetadata-bot (key token) in ns airflow; private repos also
+    need github-token (the model tarball is fetched from GitHub)."""
     om = cfg["openmetadata"]
     return KubernetesPodOperator(
         task_id="sync_openmetadata", name=f"om-sync-{cfg['slug']}"[:63],
@@ -143,7 +148,8 @@ def build_om_sync(cfg):
         env_vars={"GITHUB_REPO": cfg["repo"], "WAREHOUSE_SERVICE": om["warehouse_service"],
                   "CATALOG_SUFFIX": cfg["default_branch"], "SML_PATH": cfg["path"],
                   "GIT_REF": "{{ dag_run.conf.get('tag') or params.tag }}"},
-        secrets=[Secret("env", "OM_TOKEN", "openmetadata-bot", "token")],
+        secrets=[Secret("env", "OM_TOKEN", "openmetadata-bot", "token")]
+                + ([github_token_secret] if cfg.get("private") else []),
         get_logs=True, is_delete_operator_pod=True, startup_timeout_seconds=300,
     )
 
