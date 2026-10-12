@@ -43,58 +43,49 @@ pipelines:
   # branches) — NOT on this pipeline: no registry entry, no stub workflows.
   # It is validated indirectly through every consuming repo's validate run.
 
-  # --- Sector demo models: one repo per sector (sml-sector-model-<sector>), catalog in sml/ ---
+  # --- Sector demo models: one repo per sector (sml-sector-model-<sector>), catalog at the repo root ---
   - slug: sector-adtech
     enabled: true
     repo: muellermarco/sml-sector-model-adtech
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Adtech
   - slug: sector-finserv
     enabled: true
     repo: muellermarco/sml-sector-model-finserv
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Finserv
   - slug: sector-healthcare
     enabled: true
     repo: muellermarco/sml-sector-model-healthcare
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Healthcare
   - slug: sector-insurance
     enabled: true
     repo: muellermarco/sml-sector-model-insurance
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Insurance
   - slug: sector-manufacturing
     enabled: true
     repo: muellermarco/sml-sector-model-manufacturing
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Manufacturing
   - slug: sector-media
     enabled: true
     repo: muellermarco/sml-sector-model-media
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Media
   - slug: sector-retail
     enabled: true
     repo: muellermarco/sml-sector-model-retail
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Retail
   - slug: sector-supply
     enabled: true
     repo: muellermarco/sml-sector-model-supply
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Supply
   - slug: sector-telecom
     enabled: true
     repo: muellermarco/sml-sector-model-telecom
     private: true                      # clone via github-token secret
-    path: sml                          # catalog lives in sml/; bundle/ is the warehouse dataset
     dev_catalog_prefix: Sector-Telecom
