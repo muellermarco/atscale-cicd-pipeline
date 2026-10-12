@@ -3,7 +3,12 @@
 name: validate-reusable
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      path:                 # sub-directory holding the catalog (monorepos); default = repo root
+        required: false
+        type: string
+        default: '.'
 
 jobs:
   validate:
@@ -21,8 +26,8 @@ jobs:
       - name: Install Python deps
         run: pip install pyyaml
       - name: Install SML packages
-        run: npx -y sml-cli@2025.12.0 install .
+        run: npx -y sml-cli@2025.12.0 install ${{ inputs.path }}
       - name: Official SML validation
-        run: npx -y sml-cli@2025.12.0 validate . | tee sml-cli.log && grep -q "Validation SUCCESSFUL" sml-cli.log
+        run: npx -y sml-cli@2025.12.0 validate ${{ inputs.path }} | tee sml-cli.log && grep -q "Validation SUCCESSFUL" sml-cli.log
       - name: Cross-reference integrity
-        run: python _pipeline/tools/validate_sml.py .
+        run: python _pipeline/tools/validate_sml.py ${{ inputs.path }}
