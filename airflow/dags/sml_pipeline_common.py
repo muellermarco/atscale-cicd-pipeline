@@ -140,6 +140,11 @@ export ATSCALE_API_TOKEN=$(curl -sk -X POST -H "Authorization: Bearer $OT" \
 test -n "$ATSCALE_API_TOKEN" || {{ echo "failed to mint public token"; exit 1; }}
 export ATSCALE_API_URL="$HOST/api"
 git clone "{clone_url}" /work && cd /work
+# sml-cli matches the repo by `git remote get-url origin` (credentials included),
+# so drop the token from the remote: private repos then resolve to their
+# registered repository (stable catalog ids across releases) and the PAT
+# stays out of the task log.
+git remote set-url origin "https://github.com/{cfg['repo']}.git"
 git checkout {git_ref}
 cd "/work/{cfg['path']}"{suffix_block}
 npx -y {sml_cli} install .
