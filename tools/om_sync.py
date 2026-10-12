@@ -46,7 +46,7 @@ def measure_refs(calc):
 
 
 def field_sources(objs):
-    """Column name (as the XMLA connector names it) -> {(dataset, column)} physical origins.
+    """Column name (as the OpenMetadata connector names it) -> {(dataset, column)} physical origins.
     Calculations resolve transitively through the measures their MDX references."""
     src = {}
     def add(name, ds, col):
@@ -116,7 +116,7 @@ def _md_code(expr):
 
 
 def sml_field_docs(objs):
-    """Column name (as the XMLA connector names it) -> markdown description derived from
+    """Column name (as the OpenMetadata connector names it) -> markdown description derived from
     the SML definition: the object's own description, else a generated one, plus the
     defining details (source column, format, hierarchy, MDX)."""
     docs = {}
@@ -267,7 +267,7 @@ def main():
     ap.add_argument("--warehouse-service", required=True)
     ap.add_argument("--catalog", default=None,
                     help="deployed catalog name; data models are then named '<catalog>.<model>' "
-                         "(matches the atscale_xmla connector, which owns the columns)")
+                         "(matches the om_connectors.atscale_api connector, which owns the columns)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     objs = load_sml(a.repo)
@@ -298,17 +298,17 @@ def main():
         if r.status_code >= 300:
             print(f"{method} {path} -> {r.status_code} {r.text[:300]}"); r.raise_for_status()
         return r.json() if r.text.strip() else {}      # lineage PUT answers with an empty body
-    # the service is normally owned by the XMLA connector (om_connectors.atscale_xmla) —
+    # the service is normally owned by the API connector (om_connectors.atscale_api) —
     # never overwrite its connection; only create a placeholder when it does not exist
     if s.get(f"{OM_URL}/v1/services/dashboardServices/name/{svc}", timeout=60).status_code == 404:
         call("PUT", "/v1/services/dashboardServices", json={
             "name": svc, "serviceType": "CustomDashboard",
             "description": f"AtScale semantic layer ({a.env})",
             "connection": {"config": {"type": "CustomDashboard", "sourcePythonClass": "atscale.none"}}})
-        print(f"service {svc!r} created (placeholder connection — point it at the XMLA connector)")
+        print(f"service {svc!r} created (placeholder connection — point it at om_connectors.atscale_api)")
     for name, model, cols, tables, dsets in plan:
         dm_name = f"{a.catalog}.{name}" if a.catalog else name
-        # the XMLA connector (om_connectors.atscale_xmla) owns the data models once it has
+        # the API connector (om_connectors.atscale_api) owns the data models once it has
         # run; only create one here if it is missing, never overwrite its columns
         r0 = s.get(f"{OM_URL}/v1/dashboard/datamodels/name/{quote(datamodel_fqn(svc, dm_name), safe='')}", timeout=60)
         if r0.status_code == 200:
