@@ -13,6 +13,8 @@ Databricks, BigQuery); --warehouse-service names that OM database service.
       --env live --warehouse-service snowflake_partner --dry-run
 
 Env: OM_URL (default in-cluster), OM_TOKEN (bot JWT). Idempotent (PUT upserts).
+The service is branded "AtScale" (displayName + style.iconURL/color, see SERVICE_* below;
+override with OM_SERVICE_DISPLAY_NAME / OM_SERVICE_ICON_URL / OM_SERVICE_COLOR).
 """
 import argparse, glob, os, re, sys
 from urllib.parse import quote
@@ -20,6 +22,14 @@ import yaml
 
 DATA_MODEL_TYPE = "SupersetDataModel"   # OM has no generic type; verify against your OM version's dashboardDataModel enum
 OM_URL = os.environ.get("OM_URL", "http://openmetadata.openmetadata.svc.cluster.local:8585/api")
+# Branding of the CustomDashboard service: OM has no AtScale connector type, but a
+# service's `style` (icon + color) is honoured by the UI wherever the service logo is
+# resolved (services list, asset headers), so the catalog shows AtScale instead of the
+# generic dashboard icon. The SVG lives in this repo (public) and is fetched by browsers.
+SERVICE_DISPLAY_NAME = os.environ.get("OM_SERVICE_DISPLAY_NAME", "AtScale")
+SERVICE_ICON_URL = os.environ.get("OM_SERVICE_ICON_URL",
+    "https://raw.githubusercontent.com/muellermarco/atscale-cicd-pipeline/main/om_connectors/om_connectors/assets/atscale.svg")
+SERVICE_COLOR = os.environ.get("OM_SERVICE_COLOR", "#0047BB")   # AtScale blue (fill of the SVG)
 
 
 def load_sml(repos):
@@ -260,6 +270,32 @@ def table_fqns(ds, objs, svc):
     return out
 
 
+def ensure_service(s, call, svc, env):
+    """Create the CustomDashboard service if missing; otherwise only align its branding
+    (displayName + style). The connection is owned by the API connector and never touched."""
+    style = {"iconURL": SERVICE_ICON_URL, "color": SERVICE_COLOR}
+    r = s.get(f"{OM_URL}/v1/services/dashboardServices/name/{svc}", timeout=60)
+    if r.status_code == 404:
+        call("PUT", "/v1/services/dashboardServices", json={
+            "name": svc, "serviceType": "CustomDashboard", "displayName": SERVICE_DISPLAY_NAME,
+            "description": f"AtScale semantic layer ({env})", "style": style,
+            "connection": {"config": {"type": "CustomDashboard", "sourcePythonClass": "atscale.none"}}})
+        print(f"service {svc!r} created (placeholder connection — point it at om_connectors.atscale_api)")
+        return
+    r.raise_for_status()
+    cur = r.json(); ops = []
+    if cur.get("displayName") != SERVICE_DISPLAY_NAME:
+        ops.append({"op": "add" if cur.get("displayName") is None else "replace",
+                    "path": "/displayName", "value": SERVICE_DISPLAY_NAME})
+    if {k: (cur.get("style") or {}).get(k) for k in style} != style:
+        ops.append({"op": "add" if cur.get("style") is None else "replace", "path": "/style", "value": style})
+    if not ops:
+        print(f"service {svc!r}: branding up to date"); return
+    pr = s.patch(f"{OM_URL}/v1/services/dashboardServices/{cur['id']}", json=ops, timeout=60,
+                 headers={"Content-Type": "application/json-patch+json"})
+    print(f"service {svc!r}: branding {[o['path'] for o in ops]} -> {pr.status_code}"); pr.raise_for_status()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", action="append", required=True, help="SML repo dir (repeat for packages, e.g. -common)")
@@ -299,13 +335,8 @@ def main():
             print(f"{method} {path} -> {r.status_code} {r.text[:300]}"); r.raise_for_status()
         return r.json() if r.text.strip() else {}      # lineage PUT answers with an empty body
     # the service is normally owned by the API connector (om_connectors.atscale_api) —
-    # never overwrite its connection; only create a placeholder when it does not exist
-    if s.get(f"{OM_URL}/v1/services/dashboardServices/name/{svc}", timeout=60).status_code == 404:
-        call("PUT", "/v1/services/dashboardServices", json={
-            "name": svc, "serviceType": "CustomDashboard",
-            "description": f"AtScale semantic layer ({a.env})",
-            "connection": {"config": {"type": "CustomDashboard", "sourcePythonClass": "atscale.none"}}})
-        print(f"service {svc!r} created (placeholder connection — point it at om_connectors.atscale_api)")
+    # never overwrite its connection; create a placeholder when missing, else only re-brand it
+    ensure_service(s, call, svc, a.env)
     for name, model, cols, tables, dsets in plan:
         dm_name = f"{a.catalog}.{name}" if a.catalog else name
         # the API connector (om_connectors.atscale_api) owns the data models once it has

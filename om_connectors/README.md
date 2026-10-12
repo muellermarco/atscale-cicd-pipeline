@@ -46,6 +46,17 @@ pip install --no-deps "git+https://github.com/muellermarco/atscale-cicd-pipeline
 
 **Test Connection** runs a real `GET /v1/catalogs`.
 
+### Branding
+
+The *Add New Service* picker has no AtScale tile (that needs a native connector in
+OpenMetadata itself); the service is still a CustomDashboard. To show AtScale instead of
+the generic dashboard icon, `tools/om_sync.py` sets the service's `displayName` ("AtScale")
+and `style` (`iconURL` = [`assets/atscale.svg`](om_connectors/assets/atscale.svg) via its
+raw GitHub URL, `color` = `#0047BB`) on every run — create if missing, JSON-Patch only
+those two fields otherwise, never the connection. The UI resolves a service's own
+`style.iconURL` before the type icon on the services list and on asset headers.
+Override with `OM_SERVICE_DISPLAY_NAME`, `OM_SERVICE_ICON_URL`, `OM_SERVICE_COLOR`.
+
 Log noise to expect: `Error importing connection class for CustomDashboard` — the
 framework first looks for a stock connection spec, finds none for custom
 connectors, and falls back to this module's `get_connection`/`test_connection`.
