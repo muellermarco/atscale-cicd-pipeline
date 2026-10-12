@@ -44,48 +44,67 @@ pipelines:
   # It is validated indirectly through every consuming repo's validate run.
 
   # --- Sector demo models: one repo per sector (sml-sector-model-<sector>), catalog at the repo root ---
+  # Every sector repo is synced to OpenMetadata after a live release (tools/om_sync.py).
   - slug: sector-adtech
     enabled: true
     repo: muellermarco/sml-sector-model-adtech
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Adtech
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-finserv
     enabled: true
     repo: muellermarco/sml-sector-model-finserv
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Finserv
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-healthcare
     enabled: true
     repo: muellermarco/sml-sector-model-healthcare
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Healthcare
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-insurance
     enabled: true
     repo: muellermarco/sml-sector-model-insurance
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Insurance
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-manufacturing
     enabled: true
     repo: muellermarco/sml-sector-model-manufacturing
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Manufacturing
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-media
     enabled: true
     repo: muellermarco/sml-sector-model-media
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Media
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-retail
     enabled: true
     repo: muellermarco/sml-sector-model-retail
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Retail
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-supply
     enabled: true
     repo: muellermarco/sml-sector-model-supply
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Supply
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
   - slug: sector-telecom
     enabled: true
     repo: muellermarco/sml-sector-model-telecom
     private: true                      # clone via github-token secret
     dev_catalog_prefix: Sector-Telecom
+    openmetadata:
+      warehouse_service: snowflake_partner   # all sector models read Snowflake Partner (<SECTOR>_DEMO dbs)
