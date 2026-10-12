@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Onboard a model repo onto the SML CI/CD pipeline.
 
-    python3 onboard.py --slug my-model --repo owner/my-model \\
+    python3 onboard.py --slug <slug> --repo <owner>/<repo> \\
         [--model-clone /path/to/local/clone] [--domain atscale-se-demo.com]
 
 Does, in order:

@@ -41,6 +41,7 @@ def load_registry() -> dict:
         cfg = {**defaults, **p}
         cfg.setdefault("default_branch", "main")
         cfg.setdefault("dev_catalog_prefix", cfg["slug"])
+        cfg.setdefault("path", ".")            # sub-dir holding the catalog (monorepos)
         pipelines.append(cfg)
     return {"defaults": defaults, "pipelines": pipelines}
 
@@ -98,6 +99,9 @@ def deploy_pod(cfg: dict, task_id: str, env: str, git_ref: str,
     "<unique_name>_<branch>" / "<label>_<branch>", base names read from the
     repo's catalog file (catalog.yml or atscale.yml). Distinct names per
     branch avoid project-id conflicts with catalogs published from elsewhere.
+
+    cfg["path"] (optional): sub-directory of the repo that holds the SML
+    catalog — for monorepos with several catalogs (one registry entry each).
     """
     host = f"https://{ATSCALE_SUBDOMAINS[env]}.{domain_tmpl(cfg)}"
     sml_cli = cfg["sml_cli"]
@@ -136,7 +140,8 @@ export ATSCALE_API_TOKEN=$(curl -sk -X POST -H "Authorization: Bearer $OT" \
 test -n "$ATSCALE_API_TOKEN" || {{ echo "failed to mint public token"; exit 1; }}
 export ATSCALE_API_URL="$HOST/api"
 git clone "{clone_url}" /work && cd /work
-git checkout {git_ref}{suffix_block}
+git checkout {git_ref}
+cd "/work/{cfg['path']}"{suffix_block}
 npx -y {sml_cli} install .
 npx -y {sml_cli} validate . | tee /tmp/validate.log
 grep -q "Validation SUCCESSFUL" /tmp/validate.log
