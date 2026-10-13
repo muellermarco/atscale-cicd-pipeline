@@ -43,6 +43,19 @@ pipelines:
   # branches) — NOT on this pipeline: no registry entry, no stub workflows.
   # It is validated indirectly through every consuming repo's validate run.
 
+  # --- TPC-DS (Snowflake, SE_DEMO_LIBRARY.TPCDS_10TB) ---
+  - slug: tpcds-snowflake
+    enabled: true
+    repo: muellermarco/sml-tpcds-snowflake
+    dev_catalog_prefix: TPCDS-SF
+    openmetadata:
+      warehouse_service: snowflake_partner   # reads Snowflake Partner (SE_DEMO_LIBRARY.TPCDS_10TB)
+
+  # sml-tpcds-common is the shared PACKAGE repo pulled in by sml-tpcds-snowflake's
+  # package.yml (pinned commit) — NOT on this pipeline: no registry entry, no stub
+  # workflows. It is registered on dev/qa/prod as repo 'tpcds-common' so Design
+  # Center can resolve the package, and validated through the consuming repo.
+
   # --- Sector demo models: one repo per sector (sml-sector-model-<sector>), catalog at the repo root ---
   # Every sector repo is synced to OpenMetadata after a live release (tools/om_sync.py).
   - slug: sector-adtech
