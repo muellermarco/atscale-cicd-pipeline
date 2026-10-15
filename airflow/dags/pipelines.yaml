@@ -56,6 +56,12 @@ pipelines:
   # workflows. It is registered on dev/qa/prod as repo 'tpcds-common' so Design
   # Center can resolve the package, and validated through the consuming repo.
 
+  # --- CI/CD demo customer (empty repo at onboarding, 2026-10-15: add an openmetadata block once the warehouse is known) ---
+  - slug: cicd-demo-customer
+    enabled: true
+    repo: muellermarco/sml-cicd-demo-customer
+    dev_catalog_prefix: CICD-Demo-Customer
+
   # --- Sector demo models: one repo per sector (sml-sector-model-<sector>), catalog at the repo root ---
   # Every sector repo is synced to OpenMetadata after a live release (tools/om_sync.py).
   - slug: sector-adtech
