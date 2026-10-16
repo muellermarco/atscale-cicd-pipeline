@@ -62,6 +62,13 @@ pipelines:
     repo: muellermarco/sml-cicd-demo-customer
     dev_catalog_prefix: CICD-Demo-Customer
 
+  # --- Customer POC: TVH (BigQuery via instance connection TVH_BigQuery; no openmetadata block, no OM service for it) ---
+  - slug: poc-tvh
+    enabled: true
+    repo: muellermarco/sml-poc-tvh
+    private: true                      # clone via github-token secret
+    dev_catalog_prefix: POC-TVH
+
   # --- Sector demo models: one repo per sector (sml-sector-model-<sector>), catalog at the repo root ---
   # Every sector repo is synced to OpenMetadata after a live release (tools/om_sync.py).
   - slug: sector-adtech
