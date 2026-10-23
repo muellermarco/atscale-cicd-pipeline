@@ -25,9 +25,11 @@ jobs:
         with: {python-version: '3.12'}
       - name: Install Python deps
         run: pip install pyyaml
+      - name: Stage SML files               # sml-cli has no exclude; keep k8s manifests etc. out
+        run: python _pipeline/tools/stage_sml.py ${{ inputs.path }} "$RUNNER_TEMP/sml"
       - name: Install SML packages
-        run: npx -y sml-cli@2025.12.0 install ${{ inputs.path }}
+        run: npx -y sml-cli@2025.12.0 install "$RUNNER_TEMP/sml"
       - name: Official SML validation
-        run: npx -y sml-cli@2025.12.0 validate ${{ inputs.path }} | tee sml-cli.log && grep -q "Validation SUCCESSFUL" sml-cli.log
+        run: npx -y sml-cli@2025.12.0 validate "$RUNNER_TEMP/sml" | tee sml-cli.log && grep -q "Validation SUCCESSFUL" sml-cli.log
       - name: Cross-reference integrity
-        run: python _pipeline/tools/validate_sml.py ${{ inputs.path }}
+        run: python _pipeline/tools/validate_sml.py "$RUNNER_TEMP/sml"

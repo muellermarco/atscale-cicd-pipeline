@@ -2,7 +2,16 @@
 
 A shared CI/CD framework for AtScale SML model repositories: one pipeline, many semantic models.
 
-SML (Semantic Modeling Language) is the YAML format in which AtScale stores a semantic model as code. Each model repository holds only its SML files and three short workflow stubs. This repository holds everything else: the validation logic, the deploy orchestration in Airflow, the onboarding script, and the sync to OpenMetadata. You change and upgrade the pipeline in one place, and every model repository picks up the change.
+```
+ model repo (per model)                 THIS repo (once)
+ ──────────────────────                 ────────────────
+ SML files                              airflow/dags/pipelines.yaml   ← registry
+ .github/workflows/  ── uses: ──▶       .github/workflows/            ← reusable logic
+   validate.yml   (3-line stub)         airflow/dags/generate_dags.py ← DAG factory
+   deploy-qa.yml  (3-line stub)         tools/validate_sml.py         ← cross-ref gate
+   release-live.yml (3-line stub)       tools/stage_sml.py            ← SML-only copy for validate
+                                        onboarding/onboard.py
+```
 
 The main readers are platform engineers who run the pipeline and modelers who onboard a model repository.
 
