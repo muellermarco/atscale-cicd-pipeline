@@ -12,7 +12,8 @@ lives here, versioned and upgraded in one place.
  .github/workflows/  ── uses: ──▶       .github/workflows/            ← reusable logic
    validate.yml   (3-line stub)         airflow/dags/generate_dags.py ← DAG factory
    deploy-qa.yml  (3-line stub)         tools/validate_sml.py         ← cross-ref gate
-   release-live.yml (3-line stub)       onboarding/onboard.py
+   release-live.yml (3-line stub)       tools/stage_sml.py            ← SML-only copy for validate
+                                        onboarding/onboard.py
 ```
 
 Airflow **git-syncs `airflow/dags/` from this repo** and generates, per
