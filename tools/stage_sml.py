@@ -4,7 +4,7 @@
 sml-cli validate parses every YAML file under its root and has no exclude
 option, so non-SML YAML (Kubernetes manifests, report configs) breaks it.
 
-Inputs:  SOURCE  repo folder that holds catalog.yml
+Inputs:  SOURCE  repo folder that holds catalog.yml (or the older atscale.yml)
          TARGET  empty staging folder (created if missing)
 Output:  TARGET holds package.yml and every YAML file that is an SML object.
          A YAML file is staged when any document has an object_type key, or
@@ -23,6 +23,7 @@ import yaml
 log = logging.getLogger("stage_sml")
 OBJECT_TYPE_LINE = re.compile(r"^object_type\s*:", re.MULTILINE)
 SKIP_DIRS = {"packages", "node_modules"}
+CATALOG_FILES = ("catalog.yml", "atscale.yml")
 
 
 def is_sml(path: Path) -> bool:
@@ -39,8 +40,8 @@ def skipped(rel: Path) -> bool:
 
 
 def stage(source: Path, target: Path) -> int:
-    if not (source / "catalog.yml").is_file():
-        raise SystemExit(f"no catalog.yml in {source}")
+    if not any((source / name).is_file() for name in CATALOG_FILES):
+        raise SystemExit(f"no {' or '.join(CATALOG_FILES)} in {source}")
     target.mkdir(parents=True, exist_ok=True)
     staged = 0
     for path in sorted(source.rglob("*")):
