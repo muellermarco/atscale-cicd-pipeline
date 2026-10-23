@@ -1,72 +1,96 @@
-# om_connectors — OpenMetadata custom connector for AtScale
+# om_connectors
 
-OpenMetadata (open source) has no cube connector; this is a **CustomDashboard**
-connector that lands an AtScale semantic layer as a dashboard service, read from
-the [container API](https://documentation.atscale.com/container-api/export-catalog-representation)
-(`GET /v1/catalogs` + `GET /v1/catalogs/{id}/export`):
+An OpenMetadata custom connector that loads AtScale semantic models into OpenMetadata, with lineage to the warehouse tables.
+
+OpenMetadata (open source) has no connector for AtScale or for cubes. This package adds a CustomDashboard connector. It reads the published catalogs from the AtScale [container API](https://documentation.atscale.com/container-api/export-catalog-representation) (`GET /v1/catalogs` and `GET /v1/catalogs/{id}/export`) and creates these OpenMetadata entities:
 
 | AtScale | OpenMetadata |
 |---|---|
-| catalog | Dashboard (`<service>.<catalog>`) |
-| model / cube (and perspective) | DashboardDataModel (`<service>.model.<catalog>.<model>`, project = catalog) |
-| measure / calculated member, hierarchy level / secondary attribute | column (`dataTypeDisplay` = `measure` / `level`), named `<measure>` / `<dimension>.<attribute>` |
-| dataset's warehouse table → model | lineage edge with column mappings (for the services in `dbServicePrefixes`) |
+| Catalog | Dashboard (`<service>.<catalog>`) |
+| Model or cube (and perspective) | DashboardDataModel (`<service>.model.<catalog>.<model>`, project = catalog) |
+| Measure or calculated member, hierarchy level or secondary attribute | Column (`dataTypeDisplay` = `measure` or `level`), named `<measure>` or `<dimension>.<attribute>` |
+| Warehouse table of a dataset, to the model | Lineage edge with column mappings (for the services in `dbServicePrefixes`) |
 
-The export is the *published definition*; what the engine exposes per model follows
-from the joins, which `atscale_export.py` replays (join-level reach, role-play naming
-such as `Order Date Dimension.Order Year`, snowflakes, SCD extras, perspectives,
-visibility). The result matches the engine's own XMLA view column for column (it was
-verified cube by cube against all prod catalogs when the XMLA connector was retired).
+The export is the published definition of the catalog. The columns that the engine shows for each model depend on the joins, and `atscale_export.py` replays them: reach through joins, role-play names such as `Order Date Dimension.Order Year`, snowflake dimensions, SCD extras, perspectives, and visibility. The result matches the engine's own XMLA view column for column. This was checked cube by cube against all catalogs of a live instance.
 
-### Runtime
+## Technologies
 
-The class must be importable by the ingestion runtime (the pipeline Airflow
-image, see `atscale-cicd-infrastructure/.../airflow-image/Dockerfile`):
+- Python 3.10 or later (`requires-python` in `pyproject.toml`)
+- OpenMetadata server 2.0.4.0 and `openmetadata-ingestion` 2.0.4.0. The two versions must match.
+- Apache Airflow 3.2.2 as the ingestion runtime
+- AtScale container API (`/v1` at the host root)
 
-```
-pip install --no-deps "git+https://github.com/muellermarco/atscale-cicd-pipeline.git@main#subdirectory=om_connectors"
-```
+## Install the connector in the ingestion runtime
 
-### Service (UI → Add New Service → Dashboard → CustomDashboard)
+The connector class must be importable in the OpenMetadata ingestion runtime. In the demo environment, this is the pipeline Airflow image. Its Dockerfile is `infrastructure/helm/azure/airflow-image/Dockerfile` in the private repository `atscale-cicd-infrastructure`.
 
-- Source Python Class: `om_connectors.atscale_api.AtScaleApiSource`
-- Connection options:
-  - `api_url` = the AtScale host, e.g. `https://prod.example.com` (the API is served at
-    `/v1/...`, *not* under `/api`), or `api_url_env` (default `ATSCALE_API_URL`)
-  - `api_token_env` = env var holding a Design Center API token (profile icon → Account →
-    API Token; it does not expire), default `ATSCALE_API_TOKEN` — or `api_token` inline
-  - `catalogs` = optional comma-separated allow-list of catalog names
-  - `verify_ssl` = `true` to verify TLS (default `false`, demo certs are self-signed)
-  - `connections` = optional `<AtScale connection id>=<OM database service>[;...]`
-    (e.g. `Snowflake Partner=snowflake_partner;gbq=bigquery_partner`) so a dataset's
-    table is only looked up in the matching database service
-- Lineage: set the metadata agent's *Lineage Information → Database Service Prefixes*
-  (`sourceConfig.lineageInformation.dbServicePrefixes`) to the warehouse services already
-  ingested in OpenMetadata; without it no lineage is emitted.
+1. Install `openmetadata-ingestion==2.0.4.0` in the runtime, if it is not there.
+2. Install the connector without dependencies:
 
-**Test Connection** runs a real `GET /v1/catalogs`.
+   ```sh
+   pip install --no-deps "git+https://github.com/muellermarco/atscale-cicd-pipeline.git@main#subdirectory=om_connectors"
+   ```
 
-### Branding
+   Result: `python -c "import om_connectors.atscale_api"` runs with no error.
 
-The *Add New Service* picker has no AtScale tile (that needs a native connector in
-OpenMetadata itself); the service is still a CustomDashboard. To show AtScale instead of
-the generic dashboard icon, `tools/om_sync.py` sets the service's `displayName` ("AtScale")
-and `style` (`iconURL` = [`assets/atscale.svg`](om_connectors/assets/atscale.svg) via its
-raw GitHub URL, `color` = `#0047BB`) on every run — create if missing, JSON-Patch only
-those two fields otherwise, never the connection. The UI resolves a service's own
-`style.iconURL` before the type icon on the services list and on asset headers.
-Override with `OM_SERVICE_DISPLAY_NAME`, `OM_SERVICE_ICON_URL`, `OM_SERVICE_COLOR`.
+`--no-deps` keeps pip from changing the Airflow dependencies. The runtime already supplies `openmetadata-ingestion` and `requests`.
 
-Log noise to expect: `Error importing connection class for CustomDashboard` — the
-framework first looks for a stock connection spec, finds none for custom
-connectors, and falls back to this module's `get_connection`/`test_connection`.
+## Add the AtScale service in OpenMetadata
 
-`tools/om_sync.py` (release time) still adds the SML descriptions / MDX and creates
-data models + lineage only where the connector has not run yet.
+1. Create a Design Center API token in AtScale: profile icon, **Account**, **API Token**.
+2. Put the token in an environment variable of the ingestion runtime, for example `ATSCALE_API_TOKEN`.
+3. In OpenMetadata, select **Add New Service**, **Dashboard**, **CustomDashboard**.
+4. Set **Source Python Class** to `om_connectors.atscale_api.AtScaleApiSource`.
+5. Add the connection options from the table below.
 
-### Tests
+   **Warning:** `verify_ssl` is `false` by default, because the demo instances use self-signed certificates. Do the next step for every environment that is not a demo.
+6. Set `verify_ssl` to `true`.
+7. Select **Test Connection**.
+   Result: the test runs a real `GET /v1/catalogs` and passes.
+8. In the metadata agent, set **Lineage Information**, **Database Service Prefixes** (`sourceConfig.lineageInformation.dbServicePrefixes`) to the warehouse services in OpenMetadata.
+   Result: the next run creates lineage edges. Without this setting, the connector creates no lineage.
 
-```
-pip install -e . pytest && pytest tests/                                        # offline: parser rules, client, source + lineage
-OM_URL=http://host:8585/api OM_TOKEN=<bot jwt> python tests/e2e_fake_api.py        # full workflow against a live OpenMetadata, canned export
-```
+### Connection options
+
+| Name | Purpose | Default | Required |
+|---|---|---|---|
+| `api_url` | AtScale host, for example `https://<atscale-host>`. The API is at `/v1/...`, not under `/api`. | None | Yes, or `api_url_env` |
+| `api_url_env` | Environment variable that holds the host | `ATSCALE_API_URL` | No |
+| `api_token_env` | Environment variable that holds the Design Center API token. Use this, not `api_token`. | `ATSCALE_API_TOKEN` | Yes, or `api_token` |
+| `api_token` | The token itself, stored in the service configuration. Avoid it. | None | No |
+| `catalogs` | Comma-separated allow-list of catalog names | All catalogs | No |
+| `verify_ssl` | `true` turns on TLS certificate checks | `false` | No |
+| `connections` | Maps AtScale connections to OpenMetadata database services, `<AtScale connection id>=<OM database service>[;...]`, for example `Snowflake=snowflake_prod;gbq=bigquery_prod`. A dataset's table is then looked up only in the matching service. | None | No |
+
+## Branding
+
+The **Add New Service** page has no AtScale tile. A tile needs a native connector in OpenMetadata itself, so the service stays a CustomDashboard.
+
+To show the AtScale logo instead of the generic dashboard icon, `tools/om_sync.py` sets two fields on the service on every run:
+
+- `displayName`: `AtScale`
+- `style`: `iconURL` points to the raw GitHub URL of [`assets/atscale.svg`](om_connectors/assets/atscale.svg), and `color` is `#0047BB`
+
+If the service does not exist, the script creates it. Otherwise it changes only these two fields with a JSON Patch, never the connection. The OpenMetadata UI uses the service's own `style.iconURL` before the type icon, on the services list and on asset headers. To override the values, set `OM_SERVICE_DISPLAY_NAME`, `OM_SERVICE_ICON_URL`, and `OM_SERVICE_COLOR`.
+
+At release time, `tools/om_sync.py` also adds the SML descriptions and MDX expressions. It creates data models and lineage only where the connector has not run yet.
+
+## Expected log message
+
+The log shows `Error importing connection class for CustomDashboard`. This is normal. The framework first looks for a stock connection specification, finds none for a custom connector, and then uses this module's `get_connection` and `test_connection`.
+
+## Run the tests
+
+1. Open the `om_connectors` folder.
+2. Install the OpenMetadata ingestion package: `pip install "openmetadata-ingestion==2.0.4.0"`.
+   The test `tests/test_source.py` imports the `metadata` package.
+3. Install the connector and pytest: `pip install -e . pytest`.
+4. Run the offline tests: `pytest tests/`.
+   Result: the tests for the parser rules, the API client, the source, and the lineage pass.
+5. To test the full workflow against a live OpenMetadata with a canned export, run:
+
+   ```sh
+   OM_URL=http://<om-host>:8585/api OM_TOKEN=<bot-jwt> python tests/e2e_fake_api.py
+   ```
+
+   Result: the script ingests the canned catalog into OpenMetadata.
