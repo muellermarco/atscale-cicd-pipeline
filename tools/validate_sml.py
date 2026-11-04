@@ -45,13 +45,15 @@ for uq, (o, p) in objs['dimension'].items():
         if la['unique_name'] in las:
             errors.append(f"dim {uq}: duplicate level attr {la['unique_name']}")
         las[la['unique_name']] = la
-        d = la.get('dataset')
-        if d not in ds_cols:
-            errors.append(f"dim {uq} level {la['unique_name']}: unknown dataset {d}")
-            continue
-        for c in [la.get('name_column')] + la.get('key_columns', []) + ([la['sort_column']] if la.get('sort_column') else []):
-            if c not in ds_cols[d]:
-                errors.append(f"dim {uq} level {la['unique_name']}: column {c} not in dataset {d}")
+        # shared degenerate levels carry one column set per fact dataset
+        for src in la.get('shared_degenerate_columns') or [la]:
+            d = src.get('dataset')
+            if d not in ds_cols:
+                errors.append(f"dim {uq} level {la['unique_name']}: unknown dataset {d}")
+                continue
+            for c in [src.get('name_column')] + src.get('key_columns', []) + ([src['sort_column']] if src.get('sort_column') else []):
+                if c not in ds_cols[d]:
+                    errors.append(f"dim {uq} level {la['unique_name']}: column {c} not in dataset {d}")
     dim_levels[uq] = set(las)
     hs = set()
     secs = set()
